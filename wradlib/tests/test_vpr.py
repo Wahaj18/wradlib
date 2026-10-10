@@ -2,13 +2,14 @@
 # Copyright (c) 2011-2026, wradlib developers.
 # Distributed under the MIT License. See LICENSE.txt for more info.
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
 import pyproj
 import pytest
 
-from wradlib import vpr
+from wradlib import ipol, vpr
 
 from . import requires_gdal
 
@@ -147,6 +148,20 @@ def test_CartesianVolume(cart_data):
     out = gridder(cart_data.data)
     assert out.shape == (6084,)
     assert len(np.where(np.isnan(out))[0]) == 0
+
+
+def test_CartesianVolume_idw_remove_missing():
+    # voxels with only NaN neighbours must be NaN, not 0 (#795)
+    src = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [10.0, 0.0, 0.0], [11.0, 0, 0]])
+    trg = np.array([[0.5, 0.0, 0.0], [10.5, 0.0, 0.0]])
+    vals = np.array([np.nan, np.nan, 20.0, np.nan])
+    gridder = vpr.CartesianVolume(
+        src, trg, ipclass=ipol.Idw, nnearest=2, remove_missing=True
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        out = gridder(vals)
+    np.testing.assert_allclose(out, [np.nan, 20.0])
 
 
 @requires_gdal

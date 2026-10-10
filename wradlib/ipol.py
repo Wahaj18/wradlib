@@ -557,6 +557,9 @@ def _call_inverse_distance_weighting(
         masked_weights = np.ma.array(weights, mask=isnan)
 
         interpol = np.nansum(weights * trgvals, axis=1) / np.sum(masked_weights, axis=1)
+        # targets with only NaN neighbours are masked, keep NaN as their data,
+        # so that the mask is not turned into 0 when the result is unmasked
+        interpol.data[np.ma.getmaskarray(interpol)] = np.nan
     else:
         interpol = np.sum(weights * trgvals, axis=1) / np.sum(weights, axis=1)
 

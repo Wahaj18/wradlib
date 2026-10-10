@@ -581,6 +581,28 @@ def test_interpolate():
         ipol.interpolate(src, trg, vals, ipol.Idw, nnearest=2)
 
 
+def test_idw_remove_missing_all_nan():
+    # target points with only NaN neighbours are masked and keep NaN as data
+    # instead of 0 (#795)
+    src = np.array([[0.0, 0.0], [1.0, 0.0], [10.0, 0.0], [11.0, 0.0]])
+    trg = np.array([[0.5, 0.0], [10.5, 0.0]])
+    vals = np.array([np.nan, np.nan, 20.0, np.nan])
+    idw = ipol.Idw(src, trg, nnearest=2, remove_missing=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        out = idw(vals)
+    assert isinstance(out, np.ma.MaskedArray)
+    np.testing.assert_array_equal(np.ma.getmaskarray(out), [True, False])
+    np.testing.assert_allclose(out.data, [np.nan, 20.0])
+    np.testing.assert_allclose(np.asarray(out), [np.nan, 20.0])
+    # multiple datasets
+    vals2 = np.stack([vals, np.array([1.0, np.nan, np.nan, np.nan])], axis=-1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        out = idw(vals2)
+    np.testing.assert_allclose(out.data, [[np.nan, 1.0], [20.0, np.nan]])
+
+
 def test_interpolate_polar():
     data = np.arange(12.0).reshape(4, 3)
     masked_values = (data == 2) | (data == 9)
