@@ -193,7 +193,27 @@ def _create_tree(src, **kwargs):
     return spatial.cKDTree(src, **kwargs)
 
 
+def _pad_missing_neighbours(vals, ix, fill_value):
+    """Append ``fill_value`` to ``vals`` if ``ix`` contains missing neighbours.
+
+    :meth:`scipy:scipy.spatial.cKDTree.query` returns the number of source
+    points as index (and an infinite distance) for neighbours which could not
+    be found, e.g. when using ``distance_upper_bound``. Appending one extra
+    value makes those indices valid and maps them to ``fill_value``.
+    """
+    missing = ix >= len(vals)
+    if np.any(missing):
+        pad = np.full(
+            (1,) + vals.shape[1:], fill_value, dtype=np.result_type(vals, fill_value)
+        )
+        vals = np.concatenate([vals, pad])
+    return vals, missing
+
+
 def _call_nearest(vals, ix, dists, n=1, maxdist=None, **kwargs):
+    # missing neighbours get NaN
+    vals, _ = _pad_missing_neighbours(vals, ix, np.nan)
+
     # get first neighbour
     trgvals = vals[ix[:, 0]]
     dist_n = dists[..., 0].copy()
@@ -533,7 +553,12 @@ def get_mapping(src, trg, src_coords=None, trg_coords=None, **kwargs):
 def _call_inverse_distance_weighting(
     vals, ix, dists, idw_p=2.0, remove_missing=False, maxdist=None, **kwargs
 ):
+    # missing neighbours get zero weight, their values are NaN (remove_missing)
+    # or zero, so they do not contribute to the interpolation
+    vals, missing = _pad_missing_neighbours(vals, ix, np.nan if remove_missing else 0.0)
+
     weights = 1.0 / dists**idw_p
+    weights[missing] = 0
 
     # if maxdist isn't given, take the maximum distance
     if maxdist is not None:

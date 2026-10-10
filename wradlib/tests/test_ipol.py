@@ -399,6 +399,56 @@ def test_nnearest_warning(ipol_data):
             assert "nnearest" in str(item.message)
 
 
+def test_distance_upper_bound():
+    # neighbours beyond distance_upper_bound are returned by cKDTree.query
+    # with index == number of source points and must not raise (#796)
+    src = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+    trg = np.array([[0.0, 0.0], [0.4, 0.0], [10.0, 10.0]])
+    vals = np.array([1.0, 2.0, 3.0])
+    query_kwargs = dict(distance_upper_bound=1.5)
+
+    ip = ipol.Nearest(src, trg, query_kwargs=query_kwargs)
+    np.testing.assert_allclose(ip(vals), [1.0, 1.0, np.nan])
+    # multiple datasets
+    res = ip(np.stack([vals, 10 * vals], axis=-1))
+    np.testing.assert_allclose(res, [[1.0, 10.0], [1.0, 10.0], [np.nan, np.nan]])
+    # remove_missing considers further neighbours, which may be missing
+    ip = ipol.Nearest(src, trg, remove_missing=1, query_kwargs=query_kwargs)
+    np.testing.assert_allclose(ip(np.array([np.nan, 2.0, 3.0])), [2.0, 2.0, np.nan])
+
+    # second neighbour of the first two targets is in range, third is not
+    ip = ipol.Idw(src, trg, nnearest=3, query_kwargs=query_kwargs)
+    with warnings.catch_warnings():
+        # coincident target and source point, all-missing target
+        warnings.simplefilter("ignore", RuntimeWarning)
+        expected = ipol.Idw(src[:2], trg[:2], nnearest=2)(vals[:2])
+        res = ip(vals)
+    np.testing.assert_allclose(res[:2], expected)
+    assert np.isnan(res[2])
+    ip = ipol.Idw(src, trg, nnearest=3, remove_missing=True, query_kwargs=query_kwargs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        res = ip(vals)
+    np.testing.assert_allclose(res[:2], expected)
+    assert np.ma.is_masked(res[2])
+
+
+@pytest.mark.parametrize("method", ["nearest", "inverse_distance"])
+def test_interpolate_distance_upper_bound(method):
+    # same result as with maxdist, instead of IndexError (#796)
+    src = xr.Dataset(
+        {"v": ("p", [1.0, 2.0, 3.0])},
+        coords={"x": ("p", [0.0, 1.0, 2.0]), "y": ("p", [0.0, 0.0, 0.0])},
+    )
+    trg = xr.Dataset(coords={"x": [0.0, 10.0], "y": [0.0, 10.0]})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        res = src.wrl.ipol.interpolate(trg, method=method, distance_upper_bound=1.5)
+        ref = src.wrl.ipol.interpolate(trg, method=method, maxdist=1.5)
+    np.testing.assert_allclose(res.v.values, [[1.0, np.nan], [np.nan, np.nan]])
+    np.testing.assert_allclose(res.v.values, ref.v.values)
+
+
 def test_IpolBase(ipol_data):
     """testing the basic behaviour of the base class"""
 
